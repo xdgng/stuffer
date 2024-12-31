@@ -23,24 +23,65 @@ func bitEmbed(b byte, bit bool) byte {
 	}
 }
 
-func colorEmbed(c color.RGBA, pos int, bit bool) color.RGBA {
-	newc := color.RGBA{
-		R: c.R,
-		G: c.G,
-		B: c.B,
-		A: c.A,
-	}
-	switch pos {
-	case 0:
-		newc.R = bitEmbed(c.R, bit)
-	case 1:
-		newc.G = bitEmbed(c.G, bit)
-	case 2:
-		newc.B = bitEmbed(c.B, bit)
+func colorToRGBA(col color.Color) color.RGBA {
+
+	switch c := col.(type) {
+	case color.RGBA:
+		return c
+	case color.NRGBA:
+		return color.RGBA{
+			R: c.R,
+			G: c.G,
+			B: c.B,
+			A: c.A,
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "Invalid color pos: %d, valid 0-2\n", pos)
+		panic("unsupported color scheme")
 	}
-	return newc
+}
+
+func colorEmbed(col color.Color, pos int, bit bool) color.Color {
+	switch c := col.(type) {
+	case color.RGBA:
+		newc := color.RGBA{
+			R: c.R,
+			G: c.G,
+			B: c.B,
+			A: c.A,
+		}
+		switch pos {
+		case 0:
+			newc.R = bitEmbed(c.R, bit)
+		case 1:
+			newc.G = bitEmbed(c.G, bit)
+		case 2:
+			newc.B = bitEmbed(c.B, bit)
+		default:
+			fmt.Fprintf(os.Stderr, "Invalid color pos: %d, valid 0-2\n", pos)
+		}
+		return newc
+	case color.NRGBA:
+		newc := color.NRGBA{
+			R: c.R,
+			G: c.G,
+			B: c.B,
+			A: c.A,
+		}
+		switch pos {
+		case 0:
+			newc.R = bitEmbed(c.R, bit)
+		case 1:
+			newc.G = bitEmbed(c.G, bit)
+		case 2:
+			newc.B = bitEmbed(c.B, bit)
+		default:
+			fmt.Fprintf(os.Stderr, "Invalid color pos: %d, valid 0-2\n", pos)
+		}
+		return newc
+
+	default:
+		panic("unsupported color scheme")
+	}
 }
 
 // last 260 bytes reserved for length and
@@ -56,7 +97,8 @@ type ImageByteWriter struct {
 }
 
 func NewImageByteWriter(im WritableImage) (*ImageByteWriter, error) {
-	if im.ColorModel() != color.RGBAModel {
+	colorModel := im.ColorModel()
+	if colorModel != color.RGBAModel && colorModel != color.NRGBAModel {
 		return nil, fmt.Errorf("expected a RGB image")
 	}
 	ibw := &ImageByteWriter{
@@ -94,10 +136,7 @@ func (ibw *ImageByteWriter) writeByte(data byte) error {
 	}
 	for i := 0; i < 8; i++ {
 		bit := (data & (1 << i)) != 0
-		c, ok := ibw.im.At(ibw.currentX, ibw.currentY).(color.RGBA)
-		if !ok {
-			return fmt.Errorf("expected a RGB image")
-		}
+		c := ibw.im.At(ibw.currentX, ibw.currentY)
 		ibw.im.Set(ibw.currentX, ibw.currentY, colorEmbed(c, ibw.currentRGB, bit))
 		if ibw.increment() {
 			return io.ErrUnexpectedEOF
@@ -166,7 +205,8 @@ func (ibw *ImageByteWriter) Image() WritableImage {
 }
 
 func GetHiddenBytesFromImage(im image.Image) ([]byte, error) {
-	if im.ColorModel() != color.RGBAModel {
+	colorModel := im.ColorModel()
+	if colorModel != color.RGBAModel && colorModel != color.NRGBAModel {
 		return nil, fmt.Errorf("expected a RGBA image")
 	}
 	var br bytes.Buffer
@@ -175,7 +215,7 @@ func GetHiddenBytesFromImage(im image.Image) ([]byte, error) {
 	h := im.Bounds().Dy()
 	for j := 0; j < h; j++ {
 		for i := 0; i < w; i++ {
-			c := im.At(i, j).(color.RGBA)
+			c := colorToRGBA(im.At(i, j))
 			if err := bw.WriteBit((c.R & 1) != 0); err != nil {
 				return nil, err
 			}
